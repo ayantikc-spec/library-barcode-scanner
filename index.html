@@ -16,6 +16,10 @@
 
   <style>
 
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: Arial, sans-serif;
       background: #f4f4f9;
@@ -25,12 +29,11 @@
     }
 
     .container {
-      max-width: 650px;
+      max-width: 600px;
       margin: auto;
       background: white;
-      padding: 20px;
+      padding: 18px;
       border-radius: 14px;
-      box-shadow: 0 3px 15px rgba(0,0,0,0.12);
     }
 
     h2 {
@@ -38,47 +41,45 @@
       margin-top: 5px;
     }
 
-    .instructions {
-      font-size: 14px;
-      color: #555;
-      line-height: 1.5;
-    }
-
     #reader {
       width: 100%;
-      margin-top: 20px;
+      margin-top: 15px;
+      overflow: hidden;
+      border-radius: 10px;
     }
 
     #status {
       margin-top: 15px;
-      padding: 12px;
-      border-radius: 8px;
-      background: #f0f0f0;
       font-weight: bold;
-      word-break: break-word;
+      min-height: 25px;
     }
 
-    #zoomControl {
-      margin-top: 15px;
+    #cameraSelect {
+      width: 100%;
       padding: 10px;
-      background: #f7f7f7;
+      margin-top: 10px;
+      border: 1px solid #ccc;
       border-radius: 8px;
+      font-size: 15px;
     }
 
-    #zoomSlider {
-      width: 80%;
+    button {
+      margin-top: 10px;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      background: #2c3e50;
+      color: white;
+      font-size: 15px;
     }
 
-    #zoomLabel {
-      font-size: 13px;
-      color: #555;
-      margin-top: 5px;
+    .hidden {
+      display: none;
     }
 
   </style>
 
 </head>
-
 
 <body>
 
@@ -86,32 +87,14 @@
 
   <h2>📷 Library Barcode Scanner</h2>
 
-  <p class="instructions">
-    Hold the barcode inside the scanning area.<br>
-    Keep the barcode reasonably close to the camera and steady.
-  </p>
+  <p>Point the rear camera at the barcode.</p>
+
+  <select id="cameraSelect" class="hidden"></select>
 
   <div id="reader"></div>
 
-  <div id="zoomControl" style="display:none;">
-
-    <input
-      type="range"
-      id="zoomSlider"
-      min="1"
-      max="1"
-      step="0.1"
-      value="1"
-    >
-
-    <div id="zoomLabel">
-      Camera zoom: 1×
-    </div>
-
-  </div>
-
   <div id="status">
-    Starting high-resolution camera...
+    Requesting camera access...
   </div>
 
 </div>
@@ -119,104 +102,248 @@
 
 <script>
 
-
-/* =========================================
-   GLOBAL VARIABLES
-   ========================================= */
-
 var scanner = null;
 
-var scanning = false;
+var isScanning = false;
 
-var lastScanned = "";
-
-var lastScanTime = 0;
-
-var currentTrack = null;
+var hasScanned = false;
 
 
 /* =========================================
-   START SCANNER
+   SUPPORTED BARCODE FORMATS
    ========================================= */
 
-function startScanner() {
+var barcodeFormats = [
 
-  scanner =
-    new Html5Qrcode("reader");
+  Html5QrcodeSupportedFormats.CODE_39,
+
+  Html5QrcodeSupportedFormats.CODE_93,
+
+  Html5QrcodeSupportedFormats.CODE_128,
+
+  Html5QrcodeSupportedFormats.EAN_13,
+
+  Html5QrcodeSupportedFormats.EAN_8,
+
+  Html5QrcodeSupportedFormats.UPC_A,
+
+  Html5QrcodeSupportedFormats.UPC_E
+
+];
+
+
+/* =========================================
+   STATUS
+   ========================================= */
+
+function setStatus(message) {
+
+  document.getElementById(
+    "status"
+  ).innerText = message;
+
+}
+
+
+/* =========================================
+   FIND REAR CAMERA
+   ========================================= */
+
+function findRearCamera(cameras) {
+
+  if (!cameras || cameras.length === 0) {
+
+    return null;
+
+  }
+
+
+  var rearKeywords = [
+
+    "back",
+    "rear",
+    "environment",
+    "facing back",
+    "camera 0"
+
+  ];
+
+
+  for (
+    var i = 0;
+    i < cameras.length;
+    i++
+  ) {
+
+    var label =
+      String(
+        cameras[i].label || ""
+      ).toLowerCase();
+
+
+    for (
+      var j = 0;
+      j < rearKeywords.length;
+      j++
+    ) {
+
+      if (
+        label.indexOf(
+          rearKeywords[j]
+        ) !== -1
+      ) {
+
+        return cameras[i];
+
+      }
+
+    }
+
+  }
 
 
   /*
-   * Large scanning region.
-   *
-   * Library barcodes are normally
-   * horizontal, so the region is
-   * deliberately wider than tall.
+   * On many mobile phones the last
+   * camera returned is the rear camera.
    */
+
+  if (cameras.length > 1) {
+
+    return cameras[
+      cameras.length - 1
+    ];
+
+  }
+
+
+  return cameras[0];
+
+}
+
+
+/* =========================================
+   SHOW CAMERA LIST
+   ========================================= */
+
+function populateCameraList(cameras) {
+
+  var select =
+    document.getElementById(
+      "cameraSelect"
+    );
+
+
+  select.innerHTML = "";
+
+
+  for (
+    var i = 0;
+    i < cameras.length;
+    i++
+  ) {
+
+    var option =
+      document.createElement(
+        "option"
+      );
+
+
+    option.value =
+      cameras[i].id;
+
+
+    option.text =
+      cameras[i].label ||
+      ("Camera " + (i + 1));
+
+
+    select.appendChild(
+      option
+    );
+
+  }
+
+
+  if (cameras.length > 1) {
+
+    select.classList.remove(
+      "hidden"
+    );
+
+  }
+
+}
+
+
+/* =========================================
+   START CAMERA
+   ========================================= */
+
+function startScanner(cameraId) {
+
+  if (scanner) {
+
+    try {
+
+      scanner.stop();
+
+    }
+
+    catch (error) {
+
+    }
+
+  }
+
+
+  scanner =
+    new Html5Qrcode(
+      "reader"
+    );
+
 
   var config = {
 
-    fps: 25,
+    fps: 20,
 
     qrbox: function(
       viewfinderWidth,
       viewfinderHeight
     ) {
 
+      /*
+       * Large horizontal scanning area.
+       * Particularly useful for library
+       * Code 39 / Code 128 barcodes.
+       */
+
       var width =
         Math.min(
-          viewfinderWidth * 0.94,
-          700
+          viewfinderWidth * 0.92,
+          500
         );
+
 
       var height =
         Math.min(
-          viewfinderHeight * 0.50,
-          300
+          viewfinderHeight * 0.55,
+          220
         );
+
 
       return {
 
         width: width,
-
         height: height
 
       };
 
     },
 
+    aspectRatio: 1.7777778,
 
-    aspectRatio:
-      1.7777778,
-
-
-    /*
-     * Only barcode formats relevant
-     * to the library system.
-     */
-
-    formatsToSupport: [
-
-      Html5QrcodeSupportedFormats.CODE_39,
-
-      Html5QrcodeSupportedFormats.CODE_93,
-
-      Html5QrcodeSupportedFormats.CODE_128,
-
-      Html5QrcodeSupportedFormats.EAN_13,
-
-      Html5QrcodeSupportedFormats.EAN_8,
-
-      Html5QrcodeSupportedFormats.UPC_A,
-
-      Html5QrcodeSupportedFormats.UPC_E
-
-    ],
-
-
-    /*
-     * Use native BarcodeDetector
-     * when the browser supports it.
-     */
+    formatsToSupport:
+      barcodeFormats,
 
     experimentalFeatures: {
 
@@ -227,45 +354,14 @@ function startScanner() {
   };
 
 
-  /*
-   * Request the rear camera and
-   * high-resolution video.
-   */
-
-  var cameraConfig = {
-
-    facingMode: {
-
-      exact: "environment"
-
-    },
-
-    width: {
-
-      ideal: 1920
-
-    },
-
-    height: {
-
-      ideal: 1080
-
-    },
-
-    frameRate: {
-
-      ideal: 30,
-
-      max: 30
-
-    }
-
-  };
+  setStatus(
+    "Starting rear camera..."
+  );
 
 
   scanner.start(
 
-    cameraConfig,
+    cameraId,
 
     config,
 
@@ -277,28 +373,35 @@ function startScanner() {
 
   .then(function() {
 
-    scanning = true;
+    isScanning = true;
 
-
-    document.getElementById(
-      "status"
-    ).innerText =
-      "High-resolution camera ready.";
-
-
-    setupCameraControls();
+    setStatus(
+      "Scanner ready. Align the barcode inside the box."
+    );
 
   })
 
   .catch(function(error) {
 
+    isScanning = false;
+
     console.error(
-      "High-resolution camera failed:",
+      "Camera start error:",
       error
     );
 
 
-    startFallbackCamera();
+    setStatus(
+      "Camera could not start. Trying another camera..."
+    );
+
+
+    /*
+     * Try environment-facing camera
+     * directly as a fallback.
+     */
+
+    startEnvironmentCamera();
 
   });
 
@@ -306,370 +409,105 @@ function startScanner() {
 
 
 /* =========================================
-   FALLBACK CAMERA
+   ENVIRONMENT CAMERA FALLBACK
    ========================================= */
 
-function startFallbackCamera() {
+function startEnvironmentCamera() {
 
-  Html5Qrcode
-    .getCameras()
+  if (scanner) {
 
-    .then(function(devices) {
+    try {
 
-      if (
-        !devices ||
-        devices.length === 0
-      ) {
-
-        throw new Error(
-          "No camera was found."
-        );
-
-      }
-
-
-      /*
-       * Prefer the camera whose label
-       * indicates a rear/environment camera.
-       */
-
-      var cameraId =
-        devices[devices.length - 1].id;
-
-
-      for (
-        var i = 0;
-        i < devices.length;
-        i++
-      ) {
-
-        var label =
-          String(
-            devices[i].label || ""
-          ).toLowerCase();
-
-
-        if (
-          label.indexOf("back") !== -1 ||
-          label.indexOf("rear") !== -1 ||
-          label.indexOf("environment") !== -1
-        ) {
-
-          cameraId =
-            devices[i].id;
-
-          break;
-
-        }
-
-      }
-
-
-      scanner.start(
-
-        cameraId,
-
-        {
-
-          fps: 25,
-
-
-          qrbox: function(
-            viewfinderWidth,
-            viewfinderHeight
-          ) {
-
-            return {
-
-              width:
-                Math.min(
-                  viewfinderWidth * 0.94,
-                  700
-                ),
-
-              height:
-                Math.min(
-                  viewfinderHeight * 0.50,
-                  300
-                )
-
-            };
-
-          },
-
-
-          aspectRatio:
-            1.7777778,
-
-
-          formatsToSupport: [
-
-            Html5QrcodeSupportedFormats.CODE_39,
-
-            Html5QrcodeSupportedFormats.CODE_93,
-
-            Html5QrcodeSupportedFormats.CODE_128,
-
-            Html5QrcodeSupportedFormats.EAN_13,
-
-            Html5QrcodeSupportedFormats.EAN_8,
-
-            Html5QrcodeSupportedFormats.UPC_A,
-
-            Html5QrcodeSupportedFormats.UPC_E
-
-          ],
-
-
-          experimentalFeatures: {
-
-            useBarCodeDetectorIfSupported:
-              true
-
-          }
-
-        },
-
-        onScanSuccess,
-
-        onScanFailure
-
-      )
-
-      .then(function() {
-
-        scanning = true;
-
-
-        document.getElementById(
-          "status"
-        ).innerText =
-          "High-resolution camera ready.";
-
-
-        setupCameraControls();
-
-      })
-
-      .catch(function(error) {
-
-        document.getElementById(
-          "status"
-        ).innerText =
-          "Unable to start camera.";
-
-        console.error(error);
-
-      });
-
-    })
-
-    .catch(function(error) {
-
-      document.getElementById(
-        "status"
-      ).innerText =
-        "No usable camera found.";
-
-      console.error(error);
-
-    });
-
-}
-
-
-/* =========================================
-   CAMERA CONTROLS
-   ========================================= */
-
-function setupCameraControls() {
-
-  try {
-
-    var video =
-      document.querySelector(
-        "#reader video"
-      );
-
-
-    if (!video) {
-
-      return;
+      scanner.clear();
 
     }
 
-
-    currentTrack =
-      video.srcObject
-        ? video.srcObject.getVideoTracks()[0]
-        : null;
-
-
-    if (!currentTrack) {
-
-      return;
-
-    }
-
-
-    var capabilities =
-      currentTrack.getCapabilities();
-
-
-    /*
-     * Zoom support.
-     */
-
-    if (
-      capabilities &&
-      capabilities.zoom
-    ) {
-
-      var slider =
-        document.getElementById(
-          "zoomSlider"
-        );
-
-      var control =
-        document.getElementById(
-          "zoomControl"
-        );
-
-      var label =
-        document.getElementById(
-          "zoomLabel"
-        );
-
-
-      var minZoom =
-        capabilities.zoom.min;
-
-
-      var maxZoom =
-        capabilities.zoom.max;
-
-
-      var stepZoom =
-        capabilities.zoom.step ||
-        0.1;
-
-
-      slider.min =
-        minZoom;
-
-      slider.max =
-        maxZoom;
-
-      slider.step =
-        stepZoom;
-
-      slider.value =
-        minZoom;
-
-
-      control.style.display =
-        "block";
-
-
-      label.innerText =
-        "Camera zoom: " +
-        Number(minZoom).toFixed(1) +
-        "×";
-
-
-      slider.oninput =
-        function() {
-
-          var zoom =
-            Number(
-              this.value
-            );
-
-
-          currentTrack
-            .applyConstraints({
-
-              advanced: [
-
-                {
-                  zoom: zoom
-                }
-
-              ]
-
-            })
-
-            .then(function() {
-
-              label.innerText =
-                "Camera zoom: " +
-                zoom.toFixed(1) +
-                "×";
-
-            })
-
-            .catch(function(error) {
-
-              console.error(
-                "Zoom failed:",
-                error
-              );
-
-            });
-
-        };
-
-    }
-
-
-    /*
-     * Autofocus / focus capability.
-     */
-
-    if (
-      capabilities &&
-      capabilities.focusMode
-    ) {
-
-      try {
-
-        currentTrack
-          .applyConstraints({
-
-            advanced: [
-
-              {
-                focusMode: "continuous"
-              }
-
-            ]
-
-          })
-
-          .catch(function() {});
-
-      }
-
-      catch (error) {}
+    catch (error) {
 
     }
 
   }
 
-  catch (error) {
+
+  scanner =
+    new Html5Qrcode(
+      "reader"
+    );
+
+
+  var config = {
+
+    fps: 20,
+
+    qrbox: {
+
+      width: 350,
+
+      height: 200
+
+    },
+
+    aspectRatio: 1.7777778,
+
+    formatsToSupport:
+      barcodeFormats,
+
+    experimentalFeatures: {
+
+      useBarCodeDetectorIfSupported: true
+
+    }
+
+  };
+
+
+  scanner.start(
+
+    {
+      facingMode:
+        {
+          exact:
+            "environment"
+        }
+    },
+
+    config,
+
+    onScanSuccess,
+
+    onScanFailure
+
+  )
+
+  .then(function() {
+
+    isScanning = true;
+
+    setStatus(
+      "Rear camera ready. Scan the barcode."
+    );
+
+  })
+
+  .catch(function(error) {
 
     console.error(
-      "Camera controls unavailable:",
+      "Environment camera error:",
       error
     );
 
-  }
+
+    setStatus(
+      "No usable camera found. Please allow camera access and reload the page."
+    );
+
+  });
 
 }
 
 
 /* =========================================
-   SCAN SUCCESS
+   SUCCESS
    ========================================= */
 
 function onScanSuccess(
@@ -677,49 +515,30 @@ function onScanSuccess(
   decodedResult
 ) {
 
-  if (!decodedText) {
+  if (hasScanned) {
 
     return;
 
   }
 
 
-  var now =
-    Date.now();
+  hasScanned = true;
 
 
-  /*
-   * Prevent the same barcode from
-   * being accepted repeatedly.
-   */
-
-  if (
-    decodedText === lastScanned &&
-    now - lastScanTime < 3000
-  ) {
-
-    return;
-
-  }
+  var barcode =
+    String(
+      decodedText || ""
+    ).trim();
 
 
-  lastScanned =
-    decodedText;
-
-  lastScanTime =
-    now;
-
-
-  document.getElementById(
-    "status"
-  ).innerText =
-    "✓ Scanned: " +
-    decodedText;
+  setStatus(
+    "Scanned: " + barcode
+  );
 
 
   /*
    * Send barcode back to the
-   * Library Action Desk.
+   * main Library Action Desk.
    */
 
   if (window.opener) {
@@ -732,7 +551,7 @@ function onScanSuccess(
           "LIBRARY_BARCODE",
 
         barcode:
-          decodedText
+          barcode
 
       },
 
@@ -744,20 +563,14 @@ function onScanSuccess(
 
 
   /*
-   * Stop the camera.
+   * Stop scanner before closing.
    */
 
-  if (
-    scanner &&
-    scanning
-  ) {
+  if (scanner && isScanning) {
 
-    scanner
-      .stop()
+    scanner.stop()
 
       .then(function() {
-
-        scanning = false;
 
         return scanner.clear();
 
@@ -765,17 +578,28 @@ function onScanSuccess(
 
       .then(function() {
 
-        window.close();
+        setTimeout(
+          function() {
+
+            window.close();
+
+          },
+          200
+        );
 
       })
 
-      .catch(function(error) {
-
-        console.error(error);
+      .catch(function() {
 
         window.close();
 
       });
+
+  }
+
+  else {
+
+    window.close();
 
   }
 
@@ -791,28 +615,143 @@ function onScanFailure(error) {
   /*
    * Deliberately empty.
    *
-   * The scanner continuously tries
-   * to decode the barcode.
+   * The scanner calls this continuously
+   * while searching for a barcode.
    */
 
 }
 
 
 /* =========================================
-   START WHEN PAGE LOADS
+   CAMERA INITIALIZATION
    ========================================= */
 
-window.addEventListener(
+function initializeCamera() {
 
-  "load",
+  setStatus(
+    "Requesting camera permission..."
+  );
 
+
+  Html5Qrcode.getCameras()
+
+    .then(function(cameras) {
+
+      console.log(
+        "Available cameras:",
+        cameras
+      );
+
+
+      if (
+        !cameras ||
+        cameras.length === 0
+      ) {
+
+        setStatus(
+          "No camera was detected on this device."
+        );
+
+        return;
+
+      }
+
+
+      populateCameraList(
+        cameras
+      );
+
+
+      var rearCamera =
+        findRearCamera(
+          cameras
+        );
+
+
+      if (!rearCamera) {
+
+        setStatus(
+          "Could not identify a usable camera."
+        );
+
+        return;
+
+      }
+
+
+      /*
+       * Select rear camera in dropdown.
+       */
+
+      document.getElementById(
+        "cameraSelect"
+      ).value =
+        rearCamera.id;
+
+
+      startScanner(
+        rearCamera.id
+      );
+
+    })
+
+    .catch(function(error) {
+
+      console.error(
+        "Camera enumeration error:",
+        error
+      );
+
+
+      /*
+       * If camera enumeration fails,
+       * try the environment camera directly.
+       */
+
+      startEnvironmentCamera();
+
+    });
+
+}
+
+
+/* =========================================
+   CAMERA SWITCH
+   ========================================= */
+
+document.getElementById(
+  "cameraSelect"
+).addEventListener(
+  "change",
   function() {
 
-    startScanner();
+    var cameraId =
+      this.value;
+
+
+    if (!cameraId) {
+
+      return;
+
+    }
+
+
+    hasScanned = false;
+
+
+    startScanner(
+      cameraId
+    );
 
   }
-
 );
+
+
+/* =========================================
+   START
+   ========================================= */
+
+initializeCamera();
 
 </script>
 
