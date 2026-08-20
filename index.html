@@ -25,7 +25,7 @@
     }
 
     .container {
-      max-width: 600px;
+      max-width: 650px;
       margin: auto;
       background: white;
       padding: 20px;
@@ -36,6 +36,12 @@
     h2 {
       color: #2c3e50;
       margin-top: 5px;
+    }
+
+    .instructions {
+      font-size: 14px;
+      color: #555;
+      line-height: 1.5;
     }
 
     #reader {
@@ -49,17 +55,30 @@
       border-radius: 8px;
       background: #f0f0f0;
       font-weight: bold;
+      word-break: break-word;
     }
 
-    .instructions {
-      font-size: 14px;
+    #zoomControl {
+      margin-top: 15px;
+      padding: 10px;
+      background: #f7f7f7;
+      border-radius: 8px;
+    }
+
+    #zoomSlider {
+      width: 80%;
+    }
+
+    #zoomLabel {
+      font-size: 13px;
       color: #555;
-      line-height: 1.5;
+      margin-top: 5px;
     }
 
   </style>
 
 </head>
+
 
 <body>
 
@@ -68,11 +87,28 @@
   <h2>📷 Library Barcode Scanner</h2>
 
   <p class="instructions">
-    Hold the barcode steady inside the scanning area.<br>
-    Move the camera slightly closer or farther if necessary.
+    Hold the barcode inside the scanning area.<br>
+    Keep the barcode reasonably close to the camera and steady.
   </p>
 
   <div id="reader"></div>
+
+  <div id="zoomControl" style="display:none;">
+
+    <input
+      type="range"
+      id="zoomSlider"
+      min="1"
+      max="1"
+      step="0.1"
+      value="1"
+    >
+
+    <div id="zoomLabel">
+      Camera zoom: 1×
+    </div>
+
+  </div>
 
   <div id="status">
     Starting high-resolution camera...
@@ -83,6 +119,11 @@
 
 <script>
 
+
+/* =========================================
+   GLOBAL VARIABLES
+   ========================================= */
+
 var scanner = null;
 
 var scanning = false;
@@ -91,6 +132,8 @@ var lastScanned = "";
 
 var lastScanTime = 0;
 
+var currentTrack = null;
+
 
 /* =========================================
    START SCANNER
@@ -98,45 +141,58 @@ var lastScanTime = 0;
 
 function startScanner() {
 
-  scanner = new Html5Qrcode("reader");
+  scanner =
+    new Html5Qrcode("reader");
 
+
+  /*
+   * Large scanning region.
+   *
+   * Library barcodes are normally
+   * horizontal, so the region is
+   * deliberately wider than tall.
+   */
 
   var config = {
 
-    fps: 20,
+    fps: 25,
 
     qrbox: function(
       viewfinderWidth,
       viewfinderHeight
     ) {
 
-      /*
-       * Large horizontal scanning region
-       * suitable for library barcodes.
-       */
-
       var width =
         Math.min(
-          viewfinderWidth * 0.90,
-          500
+          viewfinderWidth * 0.94,
+          700
         );
 
       var height =
         Math.min(
-          viewfinderHeight * 0.45,
-          220
+          viewfinderHeight * 0.50,
+          300
         );
 
       return {
+
         width: width,
+
         height: height
+
       };
 
     },
 
 
-    aspectRatio: 1.7777778,
+    aspectRatio:
+      1.7777778,
 
+
+    /*
+     * Only barcode formats relevant
+     * to the library system.
+     */
 
     formatsToSupport: [
 
@@ -157,6 +213,11 @@ function startScanner() {
     ],
 
 
+    /*
+     * Use native BarcodeDetector
+     * when the browser supports it.
+     */
+
     experimentalFeatures: {
 
       useBarCodeDetectorIfSupported: true
@@ -167,13 +228,36 @@ function startScanner() {
 
 
   /*
-   * Prefer the rear camera.
+   * Request the rear camera and
+   * high-resolution video.
    */
 
   var cameraConfig = {
 
     facingMode: {
+
       exact: "environment"
+
+    },
+
+    width: {
+
+      ideal: 1920
+
+    },
+
+    height: {
+
+      ideal: 1080
+
+    },
+
+    frameRate: {
+
+      ideal: 30,
+
+      max: 30
+
     }
 
   };
@@ -195,24 +279,24 @@ function startScanner() {
 
     scanning = true;
 
+
     document.getElementById(
       "status"
     ).innerText =
-      "Camera ready. Point it at the barcode.";
+      "High-resolution camera ready.";
+
+
+    setupCameraControls();
 
   })
 
   .catch(function(error) {
 
-    console.error(error);
+    console.error(
+      "High-resolution camera failed:",
+      error
+    );
 
-
-    /*
-     * Some browsers reject exact
-     * environment camera selection.
-     *
-     * Fall back to any available camera.
-     */
 
     startFallbackCamera();
 
@@ -244,8 +328,41 @@ function startFallbackCamera() {
       }
 
 
+      /*
+       * Prefer the camera whose label
+       * indicates a rear/environment camera.
+       */
+
       var cameraId =
         devices[devices.length - 1].id;
+
+
+      for (
+        var i = 0;
+        i < devices.length;
+        i++
+      ) {
+
+        var label =
+          String(
+            devices[i].label || ""
+          ).toLowerCase();
+
+
+        if (
+          label.indexOf("back") !== -1 ||
+          label.indexOf("rear") !== -1 ||
+          label.indexOf("environment") !== -1
+        ) {
+
+          cameraId =
+            devices[i].id;
+
+          break;
+
+        }
+
+      }
 
 
       scanner.start(
@@ -254,7 +371,8 @@ function startFallbackCamera() {
 
         {
 
-          fps: 20,
+          fps: 25,
+
 
           qrbox: function(
             viewfinderWidth,
@@ -265,19 +383,24 @@ function startFallbackCamera() {
 
               width:
                 Math.min(
-                  viewfinderWidth * 0.90,
-                  500
+                  viewfinderWidth * 0.94,
+                  700
                 ),
 
               height:
                 Math.min(
-                  viewfinderHeight * 0.45,
-                  220
+                  viewfinderHeight * 0.50,
+                  300
                 )
 
             };
 
           },
+
+
+          aspectRatio:
+            1.7777778,
+
 
           formatsToSupport: [
 
@@ -297,9 +420,11 @@ function startFallbackCamera() {
 
           ],
 
+
           experimentalFeatures: {
 
-            useBarCodeDetectorIfSupported: true
+            useBarCodeDetectorIfSupported:
+              true
 
           }
 
@@ -315,10 +440,14 @@ function startFallbackCamera() {
 
         scanning = true;
 
+
         document.getElementById(
           "status"
         ).innerText =
-          "Camera ready. Point it at the barcode.";
+          "High-resolution camera ready.";
+
+
+        setupCameraControls();
 
       })
 
@@ -350,7 +479,197 @@ function startFallbackCamera() {
 
 
 /* =========================================
-   SUCCESS
+   CAMERA CONTROLS
+   ========================================= */
+
+function setupCameraControls() {
+
+  try {
+
+    var video =
+      document.querySelector(
+        "#reader video"
+      );
+
+
+    if (!video) {
+
+      return;
+
+    }
+
+
+    currentTrack =
+      video.srcObject
+        ? video.srcObject.getVideoTracks()[0]
+        : null;
+
+
+    if (!currentTrack) {
+
+      return;
+
+    }
+
+
+    var capabilities =
+      currentTrack.getCapabilities();
+
+
+    /*
+     * Zoom support.
+     */
+
+    if (
+      capabilities &&
+      capabilities.zoom
+    ) {
+
+      var slider =
+        document.getElementById(
+          "zoomSlider"
+        );
+
+      var control =
+        document.getElementById(
+          "zoomControl"
+        );
+
+      var label =
+        document.getElementById(
+          "zoomLabel"
+        );
+
+
+      var minZoom =
+        capabilities.zoom.min;
+
+
+      var maxZoom =
+        capabilities.zoom.max;
+
+
+      var stepZoom =
+        capabilities.zoom.step ||
+        0.1;
+
+
+      slider.min =
+        minZoom;
+
+      slider.max =
+        maxZoom;
+
+      slider.step =
+        stepZoom;
+
+      slider.value =
+        minZoom;
+
+
+      control.style.display =
+        "block";
+
+
+      label.innerText =
+        "Camera zoom: " +
+        Number(minZoom).toFixed(1) +
+        "×";
+
+
+      slider.oninput =
+        function() {
+
+          var zoom =
+            Number(
+              this.value
+            );
+
+
+          currentTrack
+            .applyConstraints({
+
+              advanced: [
+
+                {
+                  zoom: zoom
+                }
+
+              ]
+
+            })
+
+            .then(function() {
+
+              label.innerText =
+                "Camera zoom: " +
+                zoom.toFixed(1) +
+                "×";
+
+            })
+
+            .catch(function(error) {
+
+              console.error(
+                "Zoom failed:",
+                error
+              );
+
+            });
+
+        };
+
+    }
+
+
+    /*
+     * Autofocus / focus capability.
+     */
+
+    if (
+      capabilities &&
+      capabilities.focusMode
+    ) {
+
+      try {
+
+        currentTrack
+          .applyConstraints({
+
+            advanced: [
+
+              {
+                focusMode: "continuous"
+              }
+
+            ]
+
+          })
+
+          .catch(function() {});
+
+      }
+
+      catch (error) {}
+
+    }
+
+  }
+
+  catch (error) {
+
+    console.error(
+      "Camera controls unavailable:",
+      error
+    );
+
+  }
+
+}
+
+
+/* =========================================
+   SCAN SUCCESS
    ========================================= */
 
 function onScanSuccess(
@@ -359,7 +678,9 @@ function onScanSuccess(
 ) {
 
   if (!decodedText) {
+
     return;
+
   }
 
 
@@ -368,7 +689,8 @@ function onScanSuccess(
 
 
   /*
-   * Prevent duplicate scans.
+   * Prevent the same barcode from
+   * being accepted repeatedly.
    */
 
   if (
@@ -381,20 +703,23 @@ function onScanSuccess(
   }
 
 
-  lastScanned = decodedText;
+  lastScanned =
+    decodedText;
 
-  lastScanTime = now;
+  lastScanTime =
+    now;
 
 
   document.getElementById(
     "status"
   ).innerText =
-    "✓ Scanned: " + decodedText;
+    "✓ Scanned: " +
+    decodedText;
 
 
   /*
-   * Send barcode back to
-   * the parent Library Action Desk.
+   * Send barcode back to the
+   * Library Action Desk.
    */
 
   if (window.opener) {
@@ -403,9 +728,11 @@ function onScanSuccess(
 
       {
 
-        type: "LIBRARY_BARCODE",
+        type:
+          "LIBRARY_BARCODE",
 
-        barcode: decodedText
+        barcode:
+          decodedText
 
       },
 
@@ -417,10 +744,13 @@ function onScanSuccess(
 
 
   /*
-   * Stop camera.
+   * Stop the camera.
    */
 
-  if (scanner && scanning) {
+  if (
+    scanner &&
+    scanning
+  ) {
 
     scanner
       .stop()
@@ -434,10 +764,6 @@ function onScanSuccess(
       })
 
       .then(function() {
-
-        /*
-         * Close scanner window.
-         */
 
         window.close();
 
@@ -463,9 +789,9 @@ function onScanSuccess(
 function onScanFailure(error) {
 
   /*
-   * Do nothing.
+   * Deliberately empty.
    *
-   * Scanner continuously attempts
+   * The scanner continuously tries
    * to decode the barcode.
    */
 
@@ -473,16 +799,19 @@ function onScanFailure(error) {
 
 
 /* =========================================
-   START
+   START WHEN PAGE LOADS
    ========================================= */
 
 window.addEventListener(
+
   "load",
+
   function() {
 
     startScanner();
 
   }
+
 );
 
 </script>
