@@ -16,34 +16,100 @@
 
   <style>
 
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: Arial, sans-serif;
       background: #f4f4f9;
       margin: 0;
-      padding: 20px;
+      padding: 16px;
       text-align: center;
     }
 
     .container {
-      max-width: 450px;
+      width: 100%;
+      max-width: 520px;
       margin: auto;
       background: white;
-      padding: 20px;
-      border-radius: 12px;
+      padding: 18px;
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.10);
     }
 
     h2 {
       color: #2c3e50;
+      margin-top: 5px;
+      margin-bottom: 8px;
+    }
+
+    .instruction {
+      color: #555;
+      font-size: 14px;
+      margin-bottom: 12px;
     }
 
     #reader {
       width: 100%;
-      margin-top: 20px;
+      margin-top: 12px;
+      overflow: hidden;
+      border-radius: 10px;
     }
 
     #status {
-      margin-top: 15px;
+      margin-top: 14px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #eef2f7;
+      color: #2c3e50;
       font-weight: bold;
+      min-height: 20px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      flex: 1;
+      padding: 11px;
+      border: none;
+      border-radius: 8px;
+      background: #2c3e50;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    .manual {
+      margin-top: 15px;
+      border-top: 1px solid #ddd;
+      padding-top: 15px;
+    }
+
+    .manual input {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    .manual button {
+      margin-top: 8px;
+    }
+
+    .small {
+      margin-top: 10px;
+      color: #777;
+      font-size: 12px;
     }
 
   </style>
@@ -56,69 +122,721 @@
 
   <h2>📷 Library Barcode Scanner</h2>
 
-  <p>Point the rear camera at the barcode.</p>
+  <div class="instruction">
+    Hold the barcode steadily inside the scanning area.
+  </div>
 
   <div id="reader"></div>
 
   <div id="status">
-    Starting camera...
+    Preparing camera...
+  </div>
+
+  <div class="controls">
+
+    <button
+      type="button"
+      onclick="restartScanner()"
+    >
+      Restart Camera
+    </button>
+
+    <button
+      type="button"
+      id="torchButton"
+      onclick="toggleTorch()"
+      style="display:none;"
+    >
+      🔦 Torch
+    </button>
+
+  </div>
+
+  <div class="manual">
+
+    <input
+      id="manualBarcode"
+      type="text"
+      placeholder="Enter barcode manually"
+      autocomplete="off"
+      autocapitalize="characters"
+    >
+
+    <button
+      type="button"
+      onclick="submitManualBarcode()"
+    >
+      Use Barcode
+    </button>
+
+  </div>
+
+  <div class="small">
+    The scanner will automatically stop after a successful scan.
   </div>
 
 </div>
 
+
 <script>
 
-var html5QrcodeScanner =
-  new Html5QrcodeScanner(
+/* ============================================
+   SCANNER CONFIGURATION
+   ============================================ */
 
-    "reader",
+var html5QrCode = null;
 
-    {
-      fps: 15,
+var scannerRunning = false;
 
-      qrbox: {
-        width: 350,
-        height: 180
-      },
+var lastScannedBarcode = "";
 
-      aspectRatio: 1.333334,
+var lastScanTime = 0;
 
-      rememberLastUsedCamera: true,
+var torchOn = false;
 
-      showTorchButtonIfSupported: true,
+var videoTrack = null;
 
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.CODE_93,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E
-      ]
+
+/* ============================================
+   SUPPORTED BARCODE FORMATS
+   ============================================ */
+
+var supportedFormats = [
+
+  Html5QrcodeSupportedFormats.CODE_39,
+
+  Html5QrcodeSupportedFormats.CODE_93,
+
+  Html5QrcodeSupportedFormats.CODE_128,
+
+  Html5QrcodeSupportedFormats.EAN_13,
+
+  Html5QrcodeSupportedFormats.EAN_8,
+
+  Html5QrcodeSupportedFormats.UPC_A,
+
+  Html5QrcodeSupportedFormats.UPC_E,
+
+  Html5QrcodeSupportedFormats.ITF
+
+];
+
+
+/* ============================================
+   STATUS
+   ============================================ */
+
+function setStatus(message) {
+
+  document.getElementById(
+    "status"
+  ).innerText = message;
+
+}
+
+
+/* ============================================
+   CAMERA START
+   ============================================ */
+
+function startScanner() {
+
+  if (scannerRunning) {
+
+    return;
+
+  }
+
+
+  setStatus(
+    "Requesting rear camera..."
+  );
+
+
+  if (!html5QrCode) {
+
+    html5QrCode =
+      new Html5Qrcode(
+        "reader",
+        {
+          formatsToSupport:
+            supportedFormats
+        }
+      );
+
+  }
+
+
+  var cameraConfig = {
+
+    facingMode: {
+      exact: "environment"
+    }
+
+  };
+
+
+  var scanConfig = {
+
+    fps: 20,
+
+    qrbox: function(
+      viewfinderWidth,
+      viewfinderHeight
+    ) {
+
+      /*
+       * Large rectangular scanning area.
+       *
+       * Particularly useful for
+       * long Code 128 / Code 39 labels.
+       */
+
+      var width =
+        Math.floor(
+          viewfinderWidth * 0.92
+        );
+
+      var height =
+        Math.floor(
+          Math.min(
+            viewfinderHeight * 0.48,
+            240
+          )
+        );
+
+      return {
+        width: width,
+        height: height
+      };
+
     },
 
-    false
+    aspectRatio: 1.7777778,
+
+    disableFlip: false
+
+  };
+
+
+  html5QrCode
+    .start(
+
+      cameraConfig,
+
+      scanConfig,
+
+      onScanSuccess,
+
+      onScanFailure
+
+    )
+
+    .then(function() {
+
+      scannerRunning = true;
+
+      setStatus(
+        "Camera active. Searching for barcode..."
+      );
+
+
+      detectVideoTrack();
+
+    })
+
+    .catch(function(error) {
+
+      console.error(
+        "Camera start error:",
+        error
+      );
+
+
+      setStatus(
+        "Rear camera could not be opened. Trying available camera..."
+      );
+
+
+      startFallbackCamera();
+
+    });
+
+}
+
+
+/* ============================================
+   FALLBACK CAMERA
+   ============================================ */
+
+function startFallbackCamera() {
+
+  if (!html5QrCode) {
+
+    html5QrCode =
+      new Html5Qrcode(
+        "reader",
+        {
+          formatsToSupport:
+            supportedFormats
+        }
+      );
+
+  }
+
+
+  Html5Qrcode
+    .getCameras()
+    .then(function(cameras) {
+
+      if (
+        !cameras ||
+        cameras.length === 0
+      ) {
+
+        throw new Error(
+          "No camera found."
+        );
+
+      }
+
+
+      /*
+       * Prefer a camera whose label
+       * suggests a rear/environment camera.
+       */
+
+      var selectedCamera =
+        cameras[0];
+
+
+      for (
+        var i = 0;
+        i < cameras.length;
+        i++
+      ) {
+
+        var label =
+          String(
+            cameras[i].label || ""
+          ).toLowerCase();
+
+
+        if (
+          label.indexOf("back") !== -1 ||
+          label.indexOf("rear") !== -1 ||
+          label.indexOf("environment") !== -1
+        ) {
+
+          selectedCamera =
+            cameras[i];
+
+          break;
+
+        }
+
+      }
+
+
+      return html5QrCode.start(
+
+        selectedCamera.id,
+
+        {
+
+          fps: 20,
+
+          qrbox: function(
+            viewfinderWidth,
+            viewfinderHeight
+          ) {
+
+            var width =
+              Math.floor(
+                viewfinderWidth * 0.92
+              );
+
+            var height =
+              Math.floor(
+                Math.min(
+                  viewfinderHeight * 0.48,
+                  240
+                )
+              );
+
+            return {
+              width: width,
+              height: height
+            };
+
+          },
+
+          aspectRatio: 1.7777778,
+
+          disableFlip: false
+
+        },
+
+        onScanSuccess,
+
+        onScanFailure
+
+      );
+
+    })
+
+    .then(function() {
+
+      scannerRunning = true;
+
+      setStatus(
+        "Camera active. Searching for barcode..."
+      );
+
+      detectVideoTrack();
+
+    })
+
+    .catch(function(error) {
+
+      console.error(
+        "Fallback camera error:",
+        error
+      );
+
+      scannerRunning = false;
+
+      setStatus(
+        "Unable to access camera. Please allow camera permission."
+      );
+
+    });
+
+}
+
+
+/* ============================================
+   FIND VIDEO TRACK
+   ============================================ */
+
+function detectVideoTrack() {
+
+  setTimeout(
+    function() {
+
+      var video =
+        document.querySelector(
+          "#reader video"
+        );
+
+
+      if (!video) {
+
+        return;
+
+      }
+
+
+      try {
+
+        videoTrack =
+          video.srcObject
+            .getVideoTracks()[0];
+
+      }
+
+      catch (error) {
+
+        console.log(
+          "Could not obtain video track."
+        );
+
+      }
+
+
+      /*
+       * Request high resolution when
+       * supported by the browser.
+       */
+
+      if (videoTrack) {
+
+        try {
+
+          var capabilities =
+            videoTrack.getCapabilities();
+
+
+          var constraints = {};
+
+
+          if (
+            capabilities.width
+          ) {
+
+            constraints.width = {
+
+              ideal:
+                capabilities.width.max
+
+            };
+
+          }
+
+
+          if (
+            capabilities.height
+          ) {
+
+            constraints.height = {
+
+              ideal:
+                capabilities.height.max
+
+            };
+
+          }
+
+
+          if (
+            capabilities.focusMode
+          ) {
+
+            if (
+              capabilities.focusMode.indexOf(
+                "continuous"
+              ) !== -1
+            ) {
+
+              constraints.focusMode =
+                "continuous";
+
+            }
+
+          }
+
+
+          videoTrack
+            .applyConstraints(
+              constraints
+            )
+            .catch(
+              function(error) {
+
+                console.log(
+                  "High-resolution constraints unavailable:",
+                  error
+                );
+
+              }
+            );
+
+        }
+
+        catch (error) {
+
+          console.log(
+            "Camera capability detection failed."
+          );
+
+        }
+
+
+        /*
+         * Show torch button if supported.
+         */
+
+        try {
+
+          var capabilities =
+            videoTrack.getCapabilities();
+
+
+          if (
+            capabilities.torch
+          ) {
+
+            document.getElementById(
+              "torchButton"
+            ).style.display =
+              "block";
+
+          }
+
+        }
+
+        catch (error) {
+
+          console.log(
+            "Torch capability unavailable."
+          );
+
+        }
+
+      }
+
+    },
+    1200
   );
+
+}
+
+
+/* ============================================
+   TORCH
+   ============================================ */
+
+function toggleTorch() {
+
+  if (!videoTrack) {
+
+    setStatus(
+      "Torch is not available on this camera."
+    );
+
+    return;
+
+  }
+
+
+  torchOn =
+    !torchOn;
+
+
+  videoTrack
+    .applyConstraints({
+
+      advanced: [
+        {
+          torch:
+            torchOn
+        }
+      ]
+
+    })
+    .then(function() {
+
+      setStatus(
+        torchOn
+          ? "Torch ON. Searching for barcode..."
+          : "Torch OFF. Searching for barcode..."
+      );
+
+    })
+    .catch(function(error) {
+
+      console.error(
+        "Torch error:",
+        error
+      );
+
+      torchOn = false;
+
+      setStatus(
+        "Torch is not supported by this browser/camera."
+      );
+
+    });
+
+}
+
+
+/* ============================================
+   SUCCESSFUL SCAN
+   ============================================ */
 
 function onScanSuccess(
   decodedText,
   decodedResult
 ) {
 
-  document.getElementById(
-    "status"
-  ).innerText =
-    "Scanned: " + decodedText;
+  var barcode =
+    String(
+      decodedText || ""
+    ).trim();
 
+
+  if (!barcode) {
+
+    return;
+
+  }
+
+
+  /*
+   * Prevent duplicate detections.
+   *
+   * A barcode can be detected many
+   * times within a fraction of a second.
+   */
+
+  var now =
+    Date.now();
+
+
+  if (
+    barcode === lastScannedBarcode &&
+    now - lastScanTime < 3000
+  ) {
+
+    return;
+
+  }
+
+
+  lastScannedBarcode =
+    barcode;
+
+  lastScanTime =
+    now;
+
+
+  setStatus(
+    "✓ Barcode detected: " +
+    barcode
+  );
+
+
+  /*
+   * Success feedback.
+   */
+
+  try {
+
+    if (
+      navigator.vibrate
+    ) {
+
+      navigator.vibrate(
+        [100, 50, 100]
+      );
+
+    }
+
+  }
+
+  catch (error) {
+
+  }
+
+
+  /*
+   * Send barcode back to
+   * the Google Apps Script window.
+   */
 
   if (window.opener) {
 
     window.opener.postMessage(
 
       {
-        type: "LIBRARY_BARCODE",
-        barcode: decodedText
+
+        type:
+          "LIBRARY_BARCODE",
+
+        barcode:
+          barcode
+
       },
 
       "*"
@@ -128,27 +846,265 @@ function onScanSuccess(
   }
 
 
-  html5QrcodeScanner
-    .clear()
+  /*
+   * Stop camera.
+   */
+
+  stopScannerAndClose();
+
+}
+
+
+/* ============================================
+   SCAN FAILURE
+   ============================================ */
+
+function onScanFailure(error) {
+
+  /*
+   * Intentionally empty.
+   *
+   * html5-qrcode calls this continuously
+   * while it is searching.
+   */
+
+}
+
+
+/* ============================================
+   STOP SCANNER
+   ============================================ */
+
+function stopScanner() {
+
+  if (
+    !html5QrCode ||
+    !scannerRunning
+  ) {
+
+    return Promise.resolve();
+
+  }
+
+
+  return html5QrCode
+    .stop()
     .then(function() {
 
-      window.close();
+      scannerRunning =
+        false;
+
+      videoTrack =
+        null;
+
+      torchOn =
+        false;
+
+      setStatus(
+        "Camera stopped."
+      );
+
+    })
+    .catch(function(error) {
+
+      console.error(
+        "Scanner stop error:",
+        error
+      );
+
+      scannerRunning =
+        false;
 
     });
 
 }
 
 
-function onScanFailure(error) {
+/* ============================================
+   STOP AND CLOSE
+   ============================================ */
 
-  // Keep scanning.
+function stopScannerAndClose() {
+
+  stopScanner()
+    .then(function() {
+
+      /*
+       * Give the browser a moment
+       * to release the camera.
+       */
+
+      setTimeout(
+        function() {
+
+          try {
+
+            window.close();
+
+          }
+
+          catch (error) {
+
+            console.log(
+              "Window could not be closed."
+            );
+
+          }
+
+        },
+        200
+      );
+
+    });
 
 }
 
 
-html5QrcodeScanner.render(
-  onScanSuccess,
-  onScanFailure
+/* ============================================
+   RESTART
+   ============================================ */
+
+function restartScanner() {
+
+  stopScanner()
+    .then(function() {
+
+      /*
+       * Re-create scanner object.
+       */
+
+      html5QrCode =
+        new Html5Qrcode(
+          "reader",
+          {
+            formatsToSupport:
+              supportedFormats
+          }
+        );
+
+
+      lastScannedBarcode =
+        "";
+
+      lastScanTime =
+        0;
+
+
+      setStatus(
+        "Restarting camera..."
+      );
+
+
+      startScanner();
+
+    });
+
+}
+
+
+/* ============================================
+   MANUAL BARCODE
+   ============================================ */
+
+function submitManualBarcode() {
+
+  var input =
+    document.getElementById(
+      "manualBarcode"
+    );
+
+
+  var barcode =
+    String(
+      input.value || ""
+    ).trim();
+
+
+  if (!barcode) {
+
+    setStatus(
+      "Please enter a barcode."
+    );
+
+    return;
+
+  }
+
+
+  /*
+   * Use exactly the same
+   * communication mechanism as
+   * a camera scan.
+   */
+
+  if (window.opener) {
+
+    window.opener.postMessage(
+
+      {
+
+        type:
+          "LIBRARY_BARCODE",
+
+        barcode:
+          barcode
+
+      },
+
+      "*"
+
+    );
+
+  }
+
+
+  setStatus(
+    "Barcode submitted: " +
+    barcode
+  );
+
+
+  stopScannerAndClose();
+
+}
+
+
+/* ============================================
+   PAGE START
+   ============================================ */
+
+window.addEventListener(
+  "load",
+  function() {
+
+    startScanner();
+
+  }
+);
+
+
+/* ============================================
+   PAGE EXIT
+   ============================================ */
+
+window.addEventListener(
+  "beforeunload",
+  function() {
+
+    if (
+      html5QrCode &&
+      scannerRunning
+    ) {
+
+      html5QrCode
+        .stop()
+        .catch(
+          function() {}
+        );
+
+    }
+
+  }
 );
 
 </script>
